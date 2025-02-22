@@ -1,0 +1,76 @@
+
+// Check if the graph 'mainGraph' exists and drop it if it does
+CALL gds.graph.exists('mainGraph')
+YIELD exists
+WITH exists
+CALL apoc.do.when(
+  exists,
+  'CALL gds.graph.drop("mainGraph") YIELD graphName RETURN graphName',
+  'RETURN null AS graphName'
+) YIELD value
+WITH value.graphName AS droppedgraphName
+
+// Proceed to create the graph if it doesn't exist or has been dropped
+CALL gds.graph.project('mainGraph',
+  ['Career', 'Tool', 'Soft_Skill', 'Knowledge', 'Language', 'Course', 'Learner'],
+  ['NEED_TOOL', 'NEED_SOFTSKILL', 'NEED_KNOWLEDGE', 'NEED_LANGUAGE', 'TAUGHT_BY_COURSE', 'REQUIRE_TOOL', 'REQUIRE_SOFT_SKILL', 'REQUIRE_KNOWLEDGE', 'REQUIRE_LANGUAGE', 'WANT_TO_LEARN', 'HAS_KNOW']
+) YIELD graphName, nodeCount, relationshipCount
+
+RETURN graphName, nodeCount, relationshipCount;
+
+
+//Find all LOs and LSs node by ID of node relate to CR_3 into a list
+MATCH (source:Career { Career_ID: 'CR_3' }) 
+CALL gds.bfs.stream('nckhGraph', {
+  sourceNode: source
+})
+YIELD path
+WITH nodes(path) AS allNodes
+WITH COLLECT([node in allNodes | id(node)]) AS ListEntityToCR3
+RETURN  ListEntityToCR3;
+
+//Define the label for each ID node in list above
+MATCH (node)
+WHERE ID(node) IN [0, 3, 4, 6, 7, 8, 9, 10, 11, 12, 15, 25, 29, 32, 33, 34, 35, 36, 37, 40, 44, 45, 54, 55, 56, 57, 59, 60, 62, 63, 94, 95, 96, 100, 104, 120, 232, 233, 234, 237, 238, 245, 247, 248, 250, 251, 252, 253, 255, 256, 257, 260, 263, 266, 275, 277, 280, 281, 282, 283, 284, 286, 289, 293, 298, 299] // Replace [1, 2, 3, 4] with your list of node IDs
+RETURN ID(node) AS nodeId, labels(node) AS nodeLabels;
+
+//Build Vertex Induced SubGraph for CR_3
+WITH [0, 3, 4, 6, 7, 8, 9, 10, 11, 12, 15, 25, 29, 32, 33, 34, 35, 36, 37, 40, 44, 45, 54, 55, 56, 57, 59, 60, 62, 63, 94, 95, 96, 100, 104, 120, 232, 233, 234, 237, 238, 245, 247, 248, 250, 251, 252, 253, 255, 256, 257, 260, 263, 266, 275, 277, 280, 281, 282, 283, 284, 286, 289, 293, 298, 299] AS nodeIdList
+
+// Match nodes based on IDs
+MATCH (startNode)
+WHERE ID(startNode) IN nodeIdList
+
+// Build the subgraph using apoc.path.subgraphNodes
+CALL apoc.path.subgraphNodes(
+  startNode,
+  { relationshipFilter: '>', minLevel: 0, maxLevel: 1, labelFilter: '+*' }
+)
+YIELD node
+
+// Create new label and set properties if needed
+SET node:VIS_CR3
+
+RETURN node;
+
+------------------------------
+//Create subgraph contains all nodes and relations relate to CR3
+CALL gds.graph.project(
+  'SubGraphCR3',
+  'VIS_CR3',
+  '*',
+  {
+    relationshipProperties: 'weight'
+  }
+)
+
+------------------------------
+//Run pageRank algorithm
+CALL gds.pageRank.stream('SubGraphCR3', {
+  maxIterations: 20,
+  dampingFactor: 0.85,
+  relationshipWeightProperty: 'weight'
+})
+YIELD nodeId, score 
+RETURN distinct gds.util.asNode(nodeId).Course_Name AS Course_Name, score
+ORDER BY score DESC, Course_Name ASC
